@@ -23,12 +23,8 @@
 
 # 🧩 インストール方法
 
-1. このリポジトリをダウンロードまたはクローンします：
-   ```bash
-   git clone https://github.com/shun126/livelinkface_arkit_receiver.git
-   ```
-1. Blenderを開き、 `編集 > プリファレンス > アドオン > インストール...` を選択。
-1. ダウンロードした .zip ファイルを選択し、インストールします。
+1. [ファイルをダウンロード](https://github.com/shun126/livelinkface_arkit_receiver/archive/refs/heads/main.zip)します
+1. Blenderを開き、ダウンロードした .zip ファイルをBlenderにドラッグアンドドロップします。
 1. 「LiveLinkFace ARKit Receiver」にチェックを入れて有効化します。
 
 # 📡 使用方法
