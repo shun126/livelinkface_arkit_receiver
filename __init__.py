@@ -1,7 +1,7 @@
 bl_info = {
     "name": "LiveLinkFace ARKit Receiver",
     "author": "Shun Moriya",
-    "version": (0, 1),
+    "version": (0, 2),
     "blender": (4, 5, 0),
     "location": "View3D sidebar > LiveLinkFace",
     "description": "Receive ARKit blendshapes via UDP and drive shapekeys in real-time",
@@ -144,7 +144,6 @@ class receiver_thread(threading.Thread):
 
                     # デバイス名
                     device_name = data[offset:offset+device_name_length].decode("utf-8")
-                    #device_name = data[offset:offset+device_name_length]
                     offset += device_name_length
                     offset += 1
 
@@ -155,10 +154,7 @@ class receiver_thread(threading.Thread):
                     offset += 4
                     offset += 4
 
-                    #blendshape_count = struct.unpack_from(">b", data, offset)[0]
-                    #offset += 1
-
-                    #print(f"Message type: {msg_type}, UUID: {uuid}, Device: {device_name} ({device_name_length})")
+                    print(f"Message type: {msg_type}, UUID: {uuid}, Device: {device_name} ({device_name_length})")
 
                     # 残りは float 配列
                     values = struct.unpack_from(">" + "f" * ((len(data)-offset)//4), data, offset)
@@ -190,7 +186,13 @@ def apply_blendshapes(target_obj, values):
     for i, key in enumerate(ARKit_BLENDSHAPES):
         if key in target_obj.data.shape_keys.key_blocks:
             target_obj.data.shape_keys.key_blocks[key].value = values[i]
-            #print(f"Set {key} to {values[i]}")
+            print(f"Set {key} to {values[i]}")
+
+def clear_blendshapes(target_obj):
+    if target_obj:
+        for i, key in enumerate(ARKit_BLENDSHAPES):
+            if key in target_obj.data.shape_keys.key_blocks:
+                target_obj.data.shape_keys.key_blocks[key].value = 0.0
 
 def process_queue():
     props = bpy.context.scene.livelinkface_props
@@ -201,7 +203,6 @@ def process_queue():
         # try active object
         target_obj = getattr(bpy.context, "object", None)
         #target_obj = bpy.context.object
-    
     if target_obj:
         with shared_values_lock:
             global shared_values
@@ -271,6 +272,26 @@ class LFO_OT_stop(Operator):
         self.report({'INFO'}, "Stopped LiveLinkFace")
         return {'FINISHED'}
 
+class LFO_OT_clear_shape_keys(Operator):
+    bl_idname = "livelinkface.clear_shape_keys"
+    bl_label = "Clear Shape Key Values"
+
+    def execute(self, context):
+        props = context.scene.livelinkface_props
+        if props.running:
+            self.report({'INFO'}, "Cannot clear while running. Please stop.")
+            return {'CANCELLED'}
+        props = bpy.context.scene.livelinkface_props
+        target_obj = None
+        if props.target_object_name:
+            target_obj = bpy.data.objects.get(props.target_object_name)
+        else:
+            # try active object
+            target_obj = getattr(bpy.context, "object", None)
+            #target_obj = bpy.context.object
+        clear_blendshapes(target_obj)
+        return {'FINISHED'}
+
 class LFO_PT_panel(Panel):
     bl_idname = "LFO_PT_panel"
     bl_label = "LiveLink Face"
@@ -286,6 +307,7 @@ class LFO_PT_panel(Panel):
         col.prop(props, "listen_ip")
         col.prop(props, "listen_port")
         col.prop(props, "target_object_name")
+        layout.operator("livelinkface.clear_shape_keys", icon='X')
         row = layout.row()
         if not props.running:
             row.operator("livelinkface.start", icon='PLAY')
@@ -301,6 +323,7 @@ class LFO_PT_panel(Panel):
 # ---------------------------
 classes = (
     LFProperties,
+    LFO_OT_clear_shape_keys,
     LFO_OT_start,
     LFO_OT_stop,
     LFO_PT_panel,
