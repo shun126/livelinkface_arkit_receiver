@@ -186,13 +186,7 @@ def apply_blendshapes(target_obj, values):
     for i, key in enumerate(ARKit_BLENDSHAPES):
         if key in target_obj.data.shape_keys.key_blocks:
             target_obj.data.shape_keys.key_blocks[key].value = values[i]
-            print(f"Set {key} to {values[i]}")
-
-def clear_blendshapes(target_obj):
-    if target_obj:
-        for i, key in enumerate(ARKit_BLENDSHAPES):
-            if key in target_obj.data.shape_keys.key_blocks:
-                target_obj.data.shape_keys.key_blocks[key].value = 0.0
+            #print(f"Set {key} to {values[i]}")
 
 def process_queue():
     props = bpy.context.scene.livelinkface_props
@@ -203,7 +197,7 @@ def process_queue():
         # try active object
         target_obj = getattr(bpy.context, "object", None)
         #target_obj = bpy.context.object
-    if target_obj:
+    if target_obj and target_obj.data.shape_keys:
         with shared_values_lock:
             global shared_values
             if shared_values:
@@ -214,6 +208,12 @@ def process_queue():
         return 1.0 / 60.0
     else:
         return None
+
+def clear_blendshapes(target_obj):
+    if target_obj and target_obj.data.shape_keys:
+        for i, key in enumerate(ARKit_BLENDSHAPES):
+            if key in target_obj.data.shape_keys.key_blocks:
+                target_obj.data.shape_keys.key_blocks[key].value = 0.0
 
 # ---------------------------
 # ストレージ＆マッピング／スムージング
@@ -235,7 +235,7 @@ class LFO_OT_start(Operator):
         global receiver_thread_handle, receiver_thread_stop_event
         props = context.scene.livelinkface_props
         if props.running:
-            self.report({'INFO'}, "Already running")
+            self.report({'WARNING'}, "Already running")
             return {'CANCELLED'}
         receiver_thread_stop_event = threading.Event()
         # bind to 0.0.0.0 by default
@@ -262,7 +262,7 @@ class LFO_OT_stop(Operator):
         global receiver_thread_handle, receiver_thread_stop_event
         props = context.scene.livelinkface_props
         if not props.running:
-            self.report({'INFO'}, "Not running")
+            self.report({'WARNING'}, "Not running")
             return {'CANCELLED'}
         props.running = False
         if receiver_thread_stop_event:
@@ -279,7 +279,7 @@ class LFO_OT_clear_shape_keys(Operator):
     def execute(self, context):
         props = context.scene.livelinkface_props
         if props.running:
-            self.report({'INFO'}, "Cannot clear while running. Please stop.")
+            self.report({'WARNING'}, "Cannot clear while running. Please stop.")
             return {'CANCELLED'}
         props = bpy.context.scene.livelinkface_props
         target_obj = None
