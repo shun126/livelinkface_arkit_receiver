@@ -189,14 +189,19 @@ def apply_blendshapes(target_obj, values):
 def process_queue():
     props = bpy.context.scene.livelinkface_props
 
+    # gather target objects
     target_objs = [item.target_object for item in props.target_objects if item.target_object]
 
+    # copy shared values under lock
+    copied_shared_values = None
     with shared_values_lock:
-        global shared_values
-        if shared_values:
-            for obj in target_objs:
-                if obj and obj.data and obj.data.shape_keys:
-                    apply_blendshapes(obj, shared_values)
+        copied_shared_values = shared_values
+
+    # apply to all target objects
+    if copied_shared_values:
+        for obj in target_objs:
+            if obj and obj.data and obj.data.shape_keys:
+                apply_blendshapes(obj, copied_shared_values)
 
     # keep timer running if running
     if bpy.context.scene.livelinkface_props.running:
@@ -351,7 +356,7 @@ class LFO_PT_panel(Panel):
         else:
             row.operator("livelinkface.stop", icon='PAUSE')
         layout.label(text="Usage:")
-        layout.label(text="1) Set target object (name) or select object")
+        layout.label(text="1) Add target object (name)")
         layout.label(text="2) Set iPhone LiveLinkFace target to this PC:port")
         layout.label(text="3) Start and move face on iPhone")
 
