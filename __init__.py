@@ -1,7 +1,7 @@
 bl_info = {
     "name": "LiveLinkFace ARKit Receiver",
     "author": "Shun Moriya",
-    "version": (0, 2),
+    "version": (0, 3),
     "blender": (4, 5, 0),
     "location": "View3D sidebar > LiveLinkFace",
     "description": "Receive ARKit blendshapes via UDP and drive shapekeys in real-time",
@@ -13,10 +13,8 @@ import bpy
 import threading
 import socket
 import struct
-import queue
-import time
-from bpy.props import IntProperty, BoolProperty, FloatProperty, StringProperty, PointerProperty
-from bpy.types import Operator, Panel, AddonPreferences, PropertyGroup
+from bpy.props import IntProperty, BoolProperty, StringProperty, PointerProperty, CollectionProperty
+from bpy.types import Operator, Panel, PropertyGroup
 
 # ARKitの一般的な名前 - ユーザーは自分のシェイプキーをこれらの名前にマッピングすることができます。
 ARKit_BLENDSHAPES = [
@@ -190,18 +188,15 @@ def apply_blendshapes(target_obj, values):
 
 def process_queue():
     props = bpy.context.scene.livelinkface_props
-    target_obj = None
-    if props.target_object_name:
-        target_obj = bpy.data.objects.get(props.target_object_name)
-    else:
-        # try active object
-        target_obj = getattr(bpy.context, "object", None)
-        #target_obj = bpy.context.object
-    if target_obj and target_obj.data.shape_keys:
-        with shared_values_lock:
-            global shared_values
-            if shared_values:
-                apply_blendshapes(target_obj, shared_values)
+
+    target_objs = [item.target_object for item in props.target_objects if item.target_object]
+
+    with shared_values_lock:
+        global shared_values
+        if shared_values:
+            for obj in target_objs:
+                if obj and obj.data and obj.data.shape_keys:
+                    apply_blendshapes(obj, shared_values)
 
     # keep timer running if running
     if bpy.context.scene.livelinkface_props.running:
@@ -216,13 +211,48 @@ def clear_blendshapes(target_obj):
                 target_obj.data.shape_keys.key_blocks[key].value = 0.0
 
 # ---------------------------
-# ストレージ＆マッピング／スムージング
+# ストレージ＆マッピング
 # ---------------------------
+class LFObjectItem(PropertyGroup):
+    target_object: PointerProperty(
+        name="Target Object",
+        type=bpy.types.Object,
+        description="Name of object that has shapekeys"
+    )
+
+class LFO_UL_object_list(bpy.types.UIList):
+    """UI list to display target objects"""
+    def draw_item(self, context, layout, data, item, icon, active_data, active_propname, index):
+        layout.prop(item, "target_object", text="", emboss=True, icon='OUTLINER_OB_ARMATURE')
+
+class LFO_OT_add_object(bpy.types.Operator):
+    bl_idname = "livelinkface.add_object"
+    bl_label = "Add Target Object"
+
+    def execute(self, context):
+        props = context.scene.livelinkface_props
+        new_item = props.target_objects.add()
+        new_item.name = ""
+        props.active_index = len(props.target_objects) - 1
+        return {'FINISHED'}
+
+class LFO_OT_remove_object(bpy.types.Operator):
+    bl_idname = "livelinkface.remove_object"
+    bl_label = "Remove Target Object"
+
+    def execute(self, context):
+        props = context.scene.livelinkface_props
+        if props.active_index >= 0 and props.active_index < len(props.target_objects):
+            props.target_objects.remove(props.active_index)
+            props.active_index = min(props.active_index, len(props.target_objects) - 1)
+        return {'FINISHED'}
+
 class LFProperties(PropertyGroup):
     listen_ip: StringProperty(name="IP", default="0.0.0.0", description="IP to bind (usually 0.0.0.0)")
     listen_port: IntProperty(name="Port", default=11111, min=1024, max=65535)
     running: BoolProperty(name="Running", default=False)
-    target_object_name: StringProperty(name="Target Object", default="", description="Name of object that has shapekeys. If blank, use active object.")
+    target_objects: CollectionProperty(type=LFObjectItem)
+    active_index: IntProperty()
 
 # ---------------------------
 # Operators / Panel
@@ -282,14 +312,14 @@ class LFO_OT_clear_shape_keys(Operator):
             self.report({'WARNING'}, "Cannot clear while running. Please stop.")
             return {'CANCELLED'}
         props = bpy.context.scene.livelinkface_props
-        target_obj = None
-        if props.target_object_name:
-            target_obj = bpy.data.objects.get(props.target_object_name)
-        else:
-            # try active object
-            target_obj = getattr(bpy.context, "object", None)
-            #target_obj = bpy.context.object
-        clear_blendshapes(target_obj)
+
+        target_objs = [item.target_object for item in props.target_objects if item.target_object]
+        if not target_objs:
+            target_objs = [getattr(bpy.context, "object", None)]
+
+        for obj in target_objs:
+            clear_blendshapes(obj)
+
         return {'FINISHED'}
 
 class LFO_PT_panel(Panel):
@@ -306,7 +336,14 @@ class LFO_PT_panel(Panel):
         col = layout.column()
         col.prop(props, "listen_ip")
         col.prop(props, "listen_port")
-        col.prop(props, "target_object_name")
+
+        layout.label(text="Target Object:")
+        row = layout.row()
+        row.template_list("LFO_UL_object_list", "", props, "target_objects", props, "active_index")
+        col = row.column(align=True)
+        col.operator("livelinkface.add_object", icon='ADD', text="")
+        col.operator("livelinkface.remove_object", icon='REMOVE', text="")
+
         layout.operator("livelinkface.clear_shape_keys", icon='X')
         row = layout.row()
         if not props.running:
@@ -322,7 +359,11 @@ class LFO_PT_panel(Panel):
 # Registration
 # ---------------------------
 classes = (
+    LFObjectItem,
     LFProperties,
+    LFO_UL_object_list,
+    LFO_OT_add_object,
+    LFO_OT_remove_object,
     LFO_OT_clear_shape_keys,
     LFO_OT_start,
     LFO_OT_stop,
