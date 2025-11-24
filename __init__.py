@@ -13,7 +13,7 @@ import bpy
 import threading
 import socket
 import struct
-from bpy.props import IntProperty, BoolProperty, StringProperty, PointerProperty, CollectionProperty
+from bpy.props import IntProperty, BoolProperty, FloatProperty, StringProperty, PointerProperty, CollectionProperty
 from bpy.types import Operator, Panel, PropertyGroup
 
 # ARKitの一般的な名前 - ユーザーは自分のシェイプキーをこれらの名前にマッピングすることができます。
@@ -94,6 +94,7 @@ receiver_thread_stop_event = threading.Event()
 receiver_thread_handle = None
 shared_values = None
 shared_values_lock = threading.Lock()
+previous_values = {}
 
 # ---------------------------
 # レシーバースレッド
@@ -327,6 +328,170 @@ class LFO_OT_clear_shape_keys(Operator):
 
         return {'FINISHED'}
 
+class LFO_OT_record_pose_force(Operator):
+    bl_idname = "livelinkface.record_pose_force"
+    bl_label = "Record Facial Pose (Force)"
+
+    def execute(self, context):
+        # previous_values を初期化
+        global previous_values
+        previous_values = {}
+
+        # Optimized版を実行
+        bpy.ops.livelinkface.record_pose_optimized('INVOKE_DEFAULT')
+
+        self.report({'INFO'}, "Forced record: all previous values reset.")
+        return {'FINISHED'}
+
+class LFO_OT_record_pose_optimized(Operator):
+    bl_idname = "livelinkface.record_pose_optimized"
+    bl_label = "Record Facial Pose (Optimized)"
+
+    threshold: FloatProperty(
+        name="Threshold",
+        default=0.001,
+        min=0.0,
+        description="Record only keys that changed more than this amount"
+    )
+
+    def execute(self, context):
+        props = context.scene.livelinkface_props
+        scene = context.scene
+
+        target_objs = [item.target_object for item in props.target_objects if item.target_object]
+        if not target_objs:
+            target_objs = [getattr(context, "object", None)]
+
+        changed_count = 0
+
+        for obj in target_objs:
+            if not (obj and obj.data and obj.data.shape_keys):
+                continue
+
+            if obj.name not in previous_values:
+                previous_values[obj.name] = [-1.0] * len(ARKit_BLENDSHAPES)
+
+            previous_value = previous_values[obj.name]
+
+            for i, key_name in enumerate(ARKit_BLENDSHAPES):
+                if key_name in obj.data.shape_keys.key_blocks:
+                    kb = obj.data.shape_keys.key_blocks[key_name]
+                    current = kb.value
+                    last = previous_value[i]
+
+                    # 差分チェック
+                    if abs(current - last) > self.threshold:
+                        kb.keyframe_insert("value", frame=scene.frame_current)
+                        previous_value[i] = current
+                        changed_count += 1
+
+        self.report({'INFO'}, f"Recorded {changed_count} keys (threshold={self.threshold})")
+        return {'FINISHED'}
+
+class LFO_OT_clear_frame_keys(Operator):
+    bl_idname = "livelinkface.clear_frame_keys"
+    bl_label = "Clear Keys on Current Frame"
+    bl_description = "Delete all shape key keyframes on the current frame for all target objects"
+
+    def execute(self, context):
+        props = context.scene.livelinkface_props
+        scene = context.scene
+        frame = scene.frame_current
+
+        target_objs = [item.target_object for item in props.target_objects if item.target_object]
+        if not target_objs:
+            target_objs = [context.object]
+
+        deleted = 0
+
+        for obj in target_objs:
+            if not (obj and obj.data and obj.data.shape_keys):
+                continue
+
+            for key_name in ARKit_BLENDSHAPES:
+                if key_name in obj.data.shape_keys.key_blocks:
+                    kb = obj.data.shape_keys.key_blocks[key_name]
+
+                    # shape key animation data (F-Curve) を取得
+                    if kb.animation_data is None:
+                        continue
+
+                    action = kb.id_data.animation_data.action
+                    if not action:
+                        continue
+
+                    # シェイプキーの value に対応する FCurve を探す
+                    fcurves = action.fcurves.find('key_blocks["%s"].value' % key_name)
+
+                    if fcurves:
+                        # 現在フレームのキーを削除
+                        for kp in fcurves.keyframe_points:
+                            if int(kp.co[0]) == frame:
+                                fcurves.keyframe_points.remove(kp)
+                                deleted += 1
+                                break
+
+        self.report({'INFO'}, f"Deleted {deleted} keys on frame {frame}")
+        return {'FINISHED'}
+
+class LFO_OT_cleanup_keys(Operator):
+    bl_idname = "livelinkface.cleanup_keys"
+    bl_label = "Cleanup Facial Animation Keys"
+    bl_description = "Remove nearly-identical or redundant shape key keyframes"
+
+    threshold: FloatProperty(
+        name="Threshold",
+        default=0.001,
+        min=0.0,
+        description="If the change is below this amount, the keyframe will be removed"
+    )
+
+    def execute(self, context):
+        props = context.scene.livelinkface_props
+        scene = context.scene
+
+        target_objs = [item.target_object for item in props.target_objects if item.target_object]
+        if not target_objs:
+            target_objs = [context.object]
+
+        removed = 0
+
+        for obj in target_objs:
+            if not (obj and obj.data and obj.data.shape_keys):
+                continue
+
+            for key_name in ARKit_BLENDSHAPES:
+                if key_name not in obj.data.shape_keys.key_blocks:
+                    continue
+
+                kb = obj.data.shape_keys.key_blocks[key_name]
+                ad = kb.id_data.animation_data
+                if not ad or not ad.action:
+                    continue
+
+                action = ad.action
+                fcurve = action.fcurves.find(f'key_blocks["{key_name}"].value')
+                if not fcurve:
+                    continue
+
+                keyframes = fcurve.keyframe_points
+
+                # 差分で不要キーを削除
+                last_value = None
+                for kp in list(keyframes):  # コピーで回す
+                    frame, value = kp.co[0], kp.co[1]
+
+                    if last_value is not None:
+                        if abs(value - last_value) <= self.threshold:
+                            keyframes.remove(kp)
+                            removed += 1
+                            continue
+
+                    last_value = value
+
+        self.report({'INFO'}, f"Cleanup done: removed {removed} keys")
+        return {'FINISHED'}
+
 class LFO_PT_panel(Panel):
     bl_idname = "LFO_PT_panel"
     bl_label = "LiveLink Face"
@@ -359,6 +524,10 @@ class LFO_PT_panel(Panel):
         layout.label(text="1) Add target object (name)")
         layout.label(text="2) Set iPhone LiveLinkFace target to this PC:port")
         layout.label(text="3) Start and move face on iPhone")
+        layout.operator("livelinkface.record_pose_force", icon='KEYFRAME')
+        layout.operator("livelinkface.record_pose_optimized", icon='KEYFRAME')
+        layout.operator("livelinkface.clear_frame_keys", icon='X')
+        layout.operator("livelinkface.cleanup_keys", icon='BRUSH_DATA')
 
 # ---------------------------
 # Registration
@@ -373,6 +542,10 @@ classes = (
     LFO_OT_start,
     LFO_OT_stop,
     LFO_PT_panel,
+    LFO_OT_record_pose_force,
+    LFO_OT_record_pose_optimized,
+    LFO_OT_clear_frame_keys,
+    LFO_OT_cleanup_keys
 )
 
 def register():
