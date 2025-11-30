@@ -1,7 +1,7 @@
 bl_info = {
     "name": "LiveLinkFace ARKit Receiver",
     "author": "Shun Moriya",
-    "version": (0, 3),
+    "version": (0, 4),
     "blender": (4, 5, 0),
     "location": "View3D sidebar > LiveLinkFace",
     "description": "Receive ARKit blendshapes via UDP and drive shapekeys in real-time",
@@ -186,6 +186,32 @@ def apply_blendshapes(target_obj, values):
             target_obj.data.shape_keys.key_blocks[key].value = values[i]
             #print(f"Set {key} to {values[i]}")
 
+def apply_eye_bones(arm_obj, values, props):
+    pb = arm_obj.pose.bones
+
+    left_name = props.eye_bone_left
+    right_name = props.eye_bone_right
+
+    # LiveLink の値
+    left_yaw = values[16]
+    left_pitch = values[17]
+    right_yaw = values[18]
+    right_pitch = values[19]
+
+    # 左目
+    if left_name in pb:
+        bone = pb[left_name]
+        bone.rotation_mode = 'XYZ'
+        bone.rotation_euler[0] = left_pitch
+        bone.rotation_euler[2] = left_yaw
+
+    # 右目
+    if right_name in pb:
+        bone = pb[right_name]
+        bone.rotation_mode = 'XYZ'
+        bone.rotation_euler[0] = right_pitch
+        bone.rotation_euler[2] = right_yaw
+
 def process_queue():
     props = bpy.context.scene.livelinkface_props
 
@@ -200,8 +226,11 @@ def process_queue():
     # apply to all target objects
     if copied_shared_values:
         for obj in target_objs:
-            if obj and obj.data and obj.data.shape_keys:
-                apply_blendshapes(obj, copied_shared_values)
+            if obj:
+                if obj.type == 'MESH' and obj.data and obj.data.shape_keys:
+                    apply_blendshapes(obj, copied_shared_values)
+                elif obj.type == 'ARMATURE':
+                    apply_eye_bones(obj, copied_shared_values, props)
 
     # Time-lapse recording mode
     if props.timelapse_enabled:
@@ -295,6 +324,18 @@ class LFProperties(PropertyGroup):
     timelapse_counter: IntProperty(
         name="Counter",
         default=0
+    )
+
+    eye_bone_left: StringProperty(
+        name="Left Eye Bone",
+        default="eye.L",
+        description="Name of the left eye bone to control"
+    )
+
+    eye_bone_right: StringProperty(
+        name="Right Eye Bone",
+        default="eye.R",
+        description="Name of the right eye bone to control"
     )
 
 # ---------------------------
@@ -604,6 +645,12 @@ class LFO_PT_panel(Panel):
         layout.operator("livelinkface.clear_frame_keys", icon='X')
         layout.operator("livelinkface.clear_all_facial_keys", icon='TRASH')
         layout.operator("livelinkface.cleanup_keys", icon='BRUSH_DATA')
+
+        layout.label(text="Eye Bone Settings:")
+        layout.prop(props, "eye_bone_left")
+        layout.prop(props, "eye_bone_right")
+        #layout.prop_search(props, "eye_bone_left", arm_obj.data, "bones")
+        #layout.prop_search(props, "eye_bone_right", arm_obj.data, "bones")
 
 # ---------------------------
 # Registration
