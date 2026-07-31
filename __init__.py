@@ -1,7 +1,7 @@
 bl_info = {
     "name": "LiveLinkFace ARKit Receiver",
     "author": "Shun Moriya",
-    "version": (0, 3),
+    "version": (0, 4),
     "blender": (4, 5, 0),
     "location": "View3D sidebar > LiveLinkFace",
     "description": "Receive ARKit blendshapes via UDP and drive shapekeys in real-time",
@@ -15,6 +15,7 @@ import socket
 import struct
 from bpy.props import IntProperty, BoolProperty, StringProperty, PointerProperty, CollectionProperty
 from bpy.types import Operator, Panel, PropertyGroup
+from typing import NamedTuple
 
 # ARKitの一般的な名前 - ユーザーは自分のシェイプキーをこれらの名前にマッピングすることができます。
 ARKit_BLENDSHAPES = [
@@ -89,6 +90,21 @@ ARKit_BLENDSHAPES = [
     #"rightEyePitch",
     #"rightEyeRoll",
 ]
+
+class LeftRightBlendshapeIdxs(NamedTuple):
+    Left: float
+    Right: float
+    
+MIRRORABLE_BLENDSHAPE_PAIRS = []
+
+for i, blendshape in enumerate(ARKit_BLENDSHAPES):
+    if blendshape[-4:] == "Left":
+        left_idx = i
+        try:
+            right_idx = ARKit_BLENDSHAPES.index(blendshape[:-4] + "Right")
+        except ValueError:
+            continue
+        MIRRORABLE_BLENDSHAPE_PAIRS.append(LeftRightBlendshapeIdxs(left_idx, right_idx))
 
 receiver_thread_stop_event = threading.Event()
 receiver_thread_handle = None
@@ -195,10 +211,17 @@ def process_queue():
     # copy shared values under lock
     copied_shared_values = None
     with shared_values_lock:
-        copied_shared_values = shared_values
+        copied_shared_values = list(shared_values) if shared_values else None
 
-    # apply to all target objects
     if copied_shared_values:
+        # mirror left/right blendshapes if enabled
+        if props.mirror:
+            for pair in MIRRORABLE_BLENDSHAPE_PAIRS:
+                left_val = copied_shared_values[pair.Left]
+                copied_shared_values[pair.Left] = copied_shared_values[pair.Right]
+                copied_shared_values[pair.Right] = left_val
+
+        # apply to all target objects
         for obj in target_objs:
             if obj and obj.data and obj.data.shape_keys:
                 apply_blendshapes(obj, copied_shared_values)
@@ -258,6 +281,7 @@ class LFProperties(PropertyGroup):
     running: BoolProperty(name="Running", default=False)
     target_objects: CollectionProperty(type=LFObjectItem)
     active_index: IntProperty()
+    mirror: BoolProperty(name="Mirrored", default=False)
 
 # ---------------------------
 # Operators / Panel
@@ -355,6 +379,8 @@ class LFO_PT_panel(Panel):
             row.operator("livelinkface.start", icon='PLAY')
         else:
             row.operator("livelinkface.stop", icon='PAUSE')
+
+        layout.prop(props, "mirror", icon="MOD_MIRROR")
         layout.label(text="Usage:")
         layout.label(text="1) Add target object (name)")
         layout.label(text="2) Set iPhone LiveLinkFace target to this PC:port")
