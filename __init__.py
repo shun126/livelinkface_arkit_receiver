@@ -15,6 +15,7 @@ import socket
 import struct
 from bpy.props import IntProperty, BoolProperty, FloatProperty, StringProperty, PointerProperty, CollectionProperty
 from bpy.types import Operator, Panel, PropertyGroup
+from typing import NamedTuple
 
 # ARKitの一般的な名前 - ユーザーは自分のシェイプキーをこれらの名前にマッピングすることができます。
 ARKit_BLENDSHAPES = [
@@ -89,6 +90,21 @@ ARKit_BLENDSHAPES = [
     #"rightEyePitch",
     #"rightEyeRoll",
 ]
+
+class LeftRightBlendshapeIdxs(NamedTuple):
+    Left: int
+    Right: int
+    
+MIRRORABLE_BLENDSHAPE_PAIRS = []
+
+for i, blendshape in enumerate(ARKit_BLENDSHAPES):
+    if blendshape[-4:] == "Left":
+        left_idx = i
+        try:
+            right_idx = ARKit_BLENDSHAPES.index(blendshape[:-4] + "Right")
+        except ValueError:
+            continue
+        MIRRORABLE_BLENDSHAPE_PAIRS.append(LeftRightBlendshapeIdxs(left_idx, right_idx))
 
 receiver_thread_stop_event = threading.Event()
 receiver_thread_handle = None
@@ -221,10 +237,17 @@ def process_queue():
     # copy shared values under lock
     copied_shared_values = None
     with shared_values_lock:
-        copied_shared_values = shared_values
+        copied_shared_values = list(shared_values) if shared_values else None
 
-    # apply to all target objects
     if copied_shared_values:
+        # mirror left/right blendshapes if enabled
+        if props.mirror:
+            for pair in MIRRORABLE_BLENDSHAPE_PAIRS:
+                left_val = copied_shared_values[pair.Left]
+                copied_shared_values[pair.Left] = copied_shared_values[pair.Right]
+                copied_shared_values[pair.Right] = left_val
+
+        # apply to all target objects
         for obj in target_objs:
             if obj:
                 if obj.type == 'MESH' and obj.data and obj.data.shape_keys:
@@ -336,6 +359,12 @@ class LFProperties(PropertyGroup):
         name="Right Eye Bone",
         default="eye.R",
         description="Name of the right eye bone to control"
+    )
+
+    mirror: BoolProperty(
+        name="Mirror Left/Right",
+        description="Swap left and right ARKit blendshape values",
+        default=False,
     )
 
 # ---------------------------
@@ -632,6 +661,8 @@ class LFO_PT_panel(Panel):
             row.operator("livelinkface.start", icon='PLAY')
         else:
             row.operator("livelinkface.stop", icon='PAUSE')
+
+        layout.prop(props, "mirror", icon="MOD_MIRROR")
         layout.label(text="Usage:")
         layout.label(text="1) Add target object (name)")
         layout.label(text="2) Set iPhone LiveLinkFace target to this PC:port")
