@@ -1,0 +1,67 @@
+name: Blender Add-on Tests
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: blender-tests-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  python-syntax:
+    name: Python syntax
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Compile Python files
+        run: python -m py_compile __init__.py tests/test_addon.py
+
+  blender-integration:
+    name: Blender 4.5 LTS integration
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      BLENDER_VERSION: 4.5.13
+      BLENDER_PACKAGE: blender-4.5.13-linux-x64
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Cache Blender
+        id: cache-blender
+        uses: actions/cache@v4
+        with:
+          path: .cache/${{ env.BLENDER_PACKAGE }}
+          key: blender-${{ runner.os }}-${{ env.BLENDER_VERSION }}-linux-x64
+
+      - name: Download Blender
+        if: steps.cache-blender.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p .cache
+          curl --fail --location --retry 3 \
+            "https://download.blender.org/release/Blender4.5/${BLENDER_PACKAGE}.tar.xz" \
+            --output "/tmp/${BLENDER_PACKAGE}.tar.xz"
+          tar -xJf "/tmp/${BLENDER_PACKAGE}.tar.xz" -C .cache
+
+      - name: Show Blender version
+        run: ./.cache/${BLENDER_PACKAGE}/blender --version
+
+      - name: Run add-on integration tests
+        run: |
+          ./.cache/${BLENDER_PACKAGE}/blender \
+            --background \
+            --factory-startup \
+            --python-exit-code 1 \
+            --python tests/test_addon.py
