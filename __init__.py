@@ -92,8 +92,8 @@ ARKit_BLENDSHAPES = [
 ]
 
 class LeftRightBlendshapeIdxs(NamedTuple):
-    Left: float
-    Right: float
+    Left: int
+    Right: int
     
 MIRRORABLE_BLENDSHAPE_PAIRS = []
 
