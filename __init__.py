@@ -13,7 +13,7 @@ import bpy
 import threading
 import socket
 import struct
-from bpy.props import IntProperty, BoolProperty, StringProperty, PointerProperty, CollectionProperty
+from bpy.props import IntProperty, BoolProperty, FloatProperty, StringProperty, PointerProperty, CollectionProperty
 from bpy.types import Operator, Panel, PropertyGroup
 from typing import NamedTuple
 
@@ -202,6 +202,32 @@ def apply_blendshapes(target_obj, values):
             target_obj.data.shape_keys.key_blocks[key].value = values[i]
             #print(f"Set {key} to {values[i]}")
 
+def apply_eye_bones(arm_obj, values, props):
+    pb = arm_obj.pose.bones
+
+    left_name = props.eye_bone_left
+    right_name = props.eye_bone_right
+
+    # LiveLink の値
+    left_yaw = values[16]
+    left_pitch = values[17]
+    right_yaw = values[18]
+    right_pitch = values[19]
+
+    # 左目
+    if left_name in pb:
+        bone = pb[left_name]
+        bone.rotation_mode = 'XYZ'
+        bone.rotation_euler[0] = left_pitch
+        bone.rotation_euler[2] = left_yaw
+
+    # 右目
+    if right_name in pb:
+        bone = pb[right_name]
+        bone.rotation_mode = 'XYZ'
+        bone.rotation_euler[0] = right_pitch
+        bone.rotation_euler[2] = right_yaw
+
 def process_queue():
     props = bpy.context.scene.livelinkface_props
 
@@ -223,8 +249,32 @@ def process_queue():
 
         # apply to all target objects
         for obj in target_objs:
-            if obj and obj.data and obj.data.shape_keys:
-                apply_blendshapes(obj, copied_shared_values)
+            if obj:
+                if obj.type == 'MESH' and obj.data and obj.data.shape_keys:
+                    apply_blendshapes(obj, copied_shared_values)
+                elif obj.type == 'ARMATURE':
+                    apply_eye_bones(obj, copied_shared_values, props)
+
+    # Time-lapse recording mode
+    if props.timelapse_enabled:
+        props.timelapse_counter += 1
+
+        if props.timelapse_counter >= props.timelapse_interval:
+            props.timelapse_counter = 0
+
+            # Insert key into current frame
+            scene = bpy.context.scene
+            current_frame = scene.frame_current
+
+            for obj in target_objs:
+                if obj and obj.data and obj.data.shape_keys:
+                    for key in ARKit_BLENDSHAPES:
+                        if key in obj.data.shape_keys.key_blocks:
+                            kb = obj.data.shape_keys.key_blocks[key]
+                            kb.keyframe_insert("value", frame=current_frame)
+
+            # Advance the frames (to create a time-lapse video)
+            scene.frame_set(current_frame + props.timelapse_interval)
 
     # keep timer running if running
     if bpy.context.scene.livelinkface_props.running:
@@ -281,6 +331,36 @@ class LFProperties(PropertyGroup):
     running: BoolProperty(name="Running", default=False)
     target_objects: CollectionProperty(type=LFObjectItem)
     active_index: IntProperty()
+    timelapse_enabled: BoolProperty(
+        name="Timelapse Recording",
+        default=False,
+        description="Automatically insert keyframes every interval during LiveLink streaming"
+    )
+
+    timelapse_interval: IntProperty(
+        name="Interval (Frames)",
+        default=10,
+        min=1,
+        description="Interval in frames to record facial keyframes"
+    )
+
+    timelapse_counter: IntProperty(
+        name="Counter",
+        default=0
+    )
+
+    eye_bone_left: StringProperty(
+        name="Left Eye Bone",
+        default="eye.L",
+        description="Name of the left eye bone to control"
+    )
+
+    eye_bone_right: StringProperty(
+        name="Right Eye Bone",
+        default="eye.R",
+        description="Name of the right eye bone to control"
+    )
+
     mirror: BoolProperty(
         name="Mirror Left/Right",
         description="Swap left and right ARKit blendshape values",
@@ -355,6 +435,204 @@ class LFO_OT_clear_shape_keys(Operator):
 
         return {'FINISHED'}
 
+class LFO_OT_record_frame_keys(Operator):
+    bl_idname = "livelinkface.record_frame_keys"
+    bl_label = "Record Facial Pose"
+
+    threshold: FloatProperty(
+        name="Threshold",
+        default=0.001,
+        min=0.0,
+        description="Record only keys that changed more than this amount"
+    )
+
+    def execute(self, context):
+        props = context.scene.livelinkface_props
+        scene = context.scene
+
+        target_objs = [item.target_object for item in props.target_objects if item.target_object]
+        if not target_objs:
+            target_objs = [getattr(context, "object", None)]
+
+        changed_count = 0
+
+        for obj in target_objs:
+            if not (obj and obj.data and obj.data.shape_keys):
+                continue
+
+            for i, key_name in enumerate(ARKit_BLENDSHAPES):
+                if key_name in obj.data.shape_keys.key_blocks:
+                    kb = obj.data.shape_keys.key_blocks[key_name]
+                    kb.keyframe_insert("value", frame=scene.frame_current)
+                    changed_count += 1
+
+        self.report({'INFO'}, f"Recorded {changed_count} keys (threshold={self.threshold})")
+        return {'FINISHED'}
+
+class LFO_OT_clear_frame_keys(Operator):
+    bl_idname = "livelinkface.clear_frame_keys"
+    bl_label = "Clear Facial Animation Keys"
+    bl_description = "Delete all shape key keyframes on the current frame for all target objects"
+
+    def execute(self, context):
+        props = context.scene.livelinkface_props
+        scene = context.scene
+        frame = scene.frame_current
+
+        # 対象オブジェクト一覧
+        target_objs = [item.target_object for item in props.target_objects if item.target_object]
+        if not target_objs:
+            target_objs = [context.object]
+
+        deleted = 0
+
+        for obj in target_objs:
+            if not (obj and obj.data and obj.data.shape_keys):
+                continue
+
+            for key_name in ARKit_BLENDSHAPES:
+                if key_name not in obj.data.shape_keys.key_blocks:
+                    continue
+
+                kb = obj.data.shape_keys.key_blocks[key_name]
+
+                # animation_data は obj.data（=Mesh）に属する
+                ad = kb.id_data.animation_data
+                if not ad or not ad.action:
+                    continue
+
+                action = ad.action
+
+                # シェイプキーに対応する FCurve を探す
+                fcurve = action.fcurves.find(f'key_blocks["{key_name}"].value')
+                if not fcurve:
+                    continue
+
+                # 現在フレームのキーを削除
+                for kp in list(fcurve.keyframe_points):
+                    if int(kp.co[0]) == frame:
+                        fcurve.keyframe_points.remove(kp)
+                        deleted += 1
+                        break  # 同じフレームに複数キーを打つことは無いのでOK
+
+        # UIを更新して DopeSheet / Graph Editor の表示を即時反映
+        for area in bpy.context.screen.areas:
+            if area.type in {'DOPESHEET_EDITOR', 'GRAPH_EDITOR'}:
+                area.tag_redraw()
+
+        self.report({'INFO'}, f"Deleted {deleted} keys on frame {frame}")
+        return {'FINISHED'}
+
+class LFO_OT_clear_all_facial_keys(Operator):
+    bl_idname = "livelinkface.clear_all_facial_keys"
+    bl_label = "Clear ALL Facial Keys"
+    bl_description = "Delete ALL keyframes for ALL ARKit shape keys on all target objects"
+
+    def execute(self, context):
+        props = context.scene.livelinkface_props
+
+        target_objs = [item.target_object for item in props.target_objects if item.target_object]
+        if not target_objs:
+            target_objs = [context.object]
+
+        deleted = 0
+
+        for obj in target_objs:
+            if not obj:
+                continue
+
+            if not obj.data.shape_keys:
+                continue
+
+            ad = obj.data.shape_keys.animation_data
+            if not ad or not ad.action:
+                continue
+
+            action = ad.action
+
+            for key_name in ARKit_BLENDSHAPES:
+                path = f'key_blocks["{key_name}"].value'
+                fcurve = action.fcurves.find(path)
+                if fcurve:
+                    deleted += len(fcurve.keyframe_points)
+                    action.fcurves.remove(fcurve)
+
+        for area in bpy.context.screen.areas:
+            if area.type in {'DOPESHEET_EDITOR', 'GRAPH_EDITOR'}:
+                area.tag_redraw()
+
+        self.report({'INFO'}, f"Deleted {deleted} total facial keys.")
+        return {'FINISHED'}
+
+class LFO_OT_cleanup_keys(Operator):
+    bl_idname = "livelinkface.cleanup_keys"
+    bl_label = "Cleanup Facial Animation Keys"
+    bl_description = "Remove nearly-identical or redundant shape key keyframes"
+
+    threshold: FloatProperty(
+        name="Threshold",
+        default=0.001,
+        min=0.0,
+        description="If the change is below this amount, the keyframe will be removed"
+    )
+
+    def execute(self, context):
+        props = context.scene.livelinkface_props
+        scene = context.scene
+
+        target_objs = [item.target_object for item in props.target_objects if item.target_object]
+        if not target_objs:
+            target_objs = [context.object]
+
+        removed = 0
+
+        for obj in target_objs:
+            if not (obj and obj.data and obj.data.shape_keys):
+                continue
+
+            for key_name in ARKit_BLENDSHAPES:
+                if key_name not in obj.data.shape_keys.key_blocks:
+                    continue
+
+                kb = obj.data.shape_keys.key_blocks[key_name]
+                ad = kb.id_data.animation_data
+                if not ad or not ad.action:
+                    continue
+
+                action = ad.action
+                fcurve = action.fcurves.find(f'key_blocks["{key_name}"].value')
+                if not fcurve:
+                    continue
+
+                points = fcurve.keyframe_points
+                last_value = None
+
+                for kp in list(points):  # コピーで安全にループ
+                    value = kp.co[1]
+
+                    if last_value is not None:
+                        if abs(value - last_value) <= self.threshold:
+                            try:
+                                points.remove(kp)
+                                removed += 1
+                            except RuntimeError:
+                                for i, real_kp in enumerate(points):
+                                    if real_kp.co[0] == kp.co[0] and real_kp.co[1] == kp.co[1]:
+                                        points.remove(real_kp)
+                                        removed += 1
+                                        break
+                            continue
+
+                    last_value = value
+
+        # UIを更新して DopeSheet / Graph Editor の表示を即時反映
+        for area in bpy.context.screen.areas:
+            if area.type in {'DOPESHEET_EDITOR', 'GRAPH_EDITOR'}:
+                area.tag_redraw()
+
+        self.report({'INFO'}, f"Cleanup done: removed {removed} keys")
+        return {'FINISHED'}
+
 class LFO_PT_panel(Panel):
     bl_idname = "LFO_PT_panel"
     bl_label = "LiveLink Face"
@@ -389,6 +667,21 @@ class LFO_PT_panel(Panel):
         layout.label(text="1) Add target object (name)")
         layout.label(text="2) Set iPhone LiveLinkFace target to this PC:port")
         layout.label(text="3) Start and move face on iPhone")
+        layout.separator()
+        layout.label(text="Timelapse:")
+        layout.prop(props, "timelapse_enabled")
+        layout.prop(props, "timelapse_interval")
+        layout.separator()
+        layout.operator("livelinkface.record_frame_keys", icon='KEYFRAME')
+        layout.operator("livelinkface.clear_frame_keys", icon='X')
+        layout.operator("livelinkface.clear_all_facial_keys", icon='TRASH')
+        layout.operator("livelinkface.cleanup_keys", icon='BRUSH_DATA')
+
+        layout.label(text="Eye Bone Settings:")
+        layout.prop(props, "eye_bone_left")
+        layout.prop(props, "eye_bone_right")
+        #layout.prop_search(props, "eye_bone_left", arm_obj.data, "bones")
+        #layout.prop_search(props, "eye_bone_right", arm_obj.data, "bones")
 
 # ---------------------------
 # Registration
@@ -403,6 +696,10 @@ classes = (
     LFO_OT_start,
     LFO_OT_stop,
     LFO_PT_panel,
+    LFO_OT_record_frame_keys,
+    LFO_OT_clear_frame_keys,
+    LFO_OT_clear_all_facial_keys,
+    LFO_OT_cleanup_keys
 )
 
 def register():
