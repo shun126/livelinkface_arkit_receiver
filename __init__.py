@@ -281,7 +281,11 @@ class LFProperties(PropertyGroup):
     running: BoolProperty(name="Running", default=False)
     target_objects: CollectionProperty(type=LFObjectItem)
     active_index: IntProperty()
-    mirror: BoolProperty(name="Mirrored", default=False)
+    mirror: BoolProperty(
+        name="Mirror Left/Right",
+        description="Swap left and right ARKit blendshape values",
+        default=False,
+    )
 
 # ---------------------------
 # Operators / Panel
