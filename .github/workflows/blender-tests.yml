@@ -6,6 +6,7 @@ on:
     branches:
       - main
   workflow_dispatch:
+  workflow_call:
 
 permissions:
   contents: read
@@ -25,7 +26,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Compile Python files
-        run: python -m py_compile __init__.py tests/test_addon.py
+        run: python -m py_compile __init__.py tests/test_addon.py .github/scripts/build_release.py
 
   blender-integration:
     name: Blender 4.5 LTS integration
