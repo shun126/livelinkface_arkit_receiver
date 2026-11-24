@@ -1,16 +1,9 @@
 name: Release
 
 on:
-  workflow_dispatch:
-    inputs:
-      draft:
-        description: Create the release as a draft
-        type: boolean
-        default: false
-      prerelease:
-        description: Mark the release as a pre-release
-        type: boolean
-        default: false
+  push:
+    tags:
+      - '[0-9]*-[0-9]*'
 
 concurrency:
   group: release
@@ -37,19 +30,12 @@ jobs:
 
       - name: Build add-on zip and release notes
         id: build
-        run: python .github/scripts/build_release.py --out-dir dist
+        env:
+          TAG: ${{ github.ref_name }}
+        run: python .github/scripts/build_release.py --out-dir dist --tag "${TAG}"
 
       - name: Show zip contents
         run: unzip -l "${{ steps.build.outputs.zip }}"
-
-      - name: Check tag does not exist
-        env:
-          TAG: ${{ steps.build.outputs.tag }}
-        run: |
-          if git ls-remote --exit-code --tags origin "refs/tags/${TAG}" > /dev/null; then
-            echo "::error::Tag ${TAG} already exists. Bump bl_info version and add a CHANGELOG section first."
-            exit 1
-          fi
 
       - name: Create GitHub release
         env:
@@ -58,14 +44,8 @@ jobs:
           TITLE: ${{ steps.build.outputs.title }}
           ZIP: ${{ steps.build.outputs.zip }}
           NOTES: ${{ steps.build.outputs.notes }}
-          DRAFT: ${{ inputs.draft }}
-          PRERELEASE: ${{ inputs.prerelease }}
         run: |
-          flags=()
-          if [ "${DRAFT}" = "true" ]; then flags+=(--draft); fi
-          if [ "${PRERELEASE}" = "true" ]; then flags+=(--prerelease); fi
           gh release create "${TAG}" "${ZIP}" \
-            --target "${GITHUB_SHA}" \
+            --verify-tag \
             --title "${TITLE}" \
-            --notes-file "${NOTES}" \
-            "${flags[@]}"
+            --notes-file "${NOTES}"
