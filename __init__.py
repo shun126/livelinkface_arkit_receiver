@@ -418,6 +418,12 @@ def iter_key_channels(obj, props):
             for index in range(len(getattr(bone, prop))):
                 yield KeyChannel(obj, bone, prop, index, data_path, bone.name)
 
+KEY_FRAME_TOLERANCE = 1e-4
+
+def is_key_on_frame(point, frame):
+    """キーが frame ちょうどにあるか。サブフレームのキー（10.5 など）は含めない"""
+    return abs(point.co[0] - frame) < KEY_FRAME_TOLERANCE
+
 def insert_channel_key(channel, frame, threshold=None):
     """キーを打つ。threshold 指定時は、前回キーとの差が threshold 以下なら打たない"""
     if threshold is not None:
@@ -426,7 +432,7 @@ def insert_channel_key(channel, frame, threshold=None):
             previous = None
             has_key_on_frame = False
             for point in fcurve.keyframe_points:
-                if int(point.co[0]) == frame:
+                if is_key_on_frame(point, frame):
                     has_key_on_frame = True
                 elif point.co[0] < frame:
                     previous = point.co[1]
@@ -750,6 +756,7 @@ class LFO_OT_stop(Operator):
 
 class LFO_OT_clear_shape_keys(Operator):
     bl_idname = "livelinkface.clear_shape_keys"
+    bl_options = {'REGISTER', 'UNDO'}
     bl_label = "Clear Shape Key Values"
 
     def execute(self, context):
@@ -770,6 +777,7 @@ class LFO_OT_clear_shape_keys(Operator):
 
 class LFO_OT_record_frame_keys(Operator):
     bl_idname = "livelinkface.record_frame_keys"
+    bl_options = {'REGISTER', 'UNDO'}
     bl_label = "Record Facial Pose"
     bl_description = "Insert keys for shape keys and enabled bones that changed since the previous key"
 
@@ -796,6 +804,7 @@ class LFO_OT_record_frame_keys(Operator):
 
 class LFO_OT_clear_frame_keys(Operator):
     bl_idname = "livelinkface.clear_frame_keys"
+    bl_options = {'REGISTER', 'UNDO'}
     bl_label = "Clear Facial Animation Keys"
     bl_description = "Delete shape key and enabled bone keyframes on the current frame for all target objects"
 
@@ -810,7 +819,7 @@ class LFO_OT_clear_frame_keys(Operator):
                 if not fcurve:
                     continue
                 for index, point in enumerate(fcurve.keyframe_points):
-                    if int(point.co[0]) == frame:
+                    if is_key_on_frame(point, frame):
                         fcurve.keyframe_points.remove(fcurve.keyframe_points[index])
                         fcurve.update()
                         deleted += 1
@@ -825,6 +834,7 @@ class LFO_OT_clear_frame_keys(Operator):
 
 class LFO_OT_clear_all_facial_keys(Operator):
     bl_idname = "livelinkface.clear_all_facial_keys"
+    bl_options = {'REGISTER', 'UNDO'}
     bl_label = "Clear ALL Facial Keys"
     bl_description = "Delete ALL keyframes for ARKit shape keys and enabled bones on all target objects"
 
@@ -845,6 +855,7 @@ class LFO_OT_clear_all_facial_keys(Operator):
 
 class LFO_OT_cleanup_keys(Operator):
     bl_idname = "livelinkface.cleanup_keys"
+    bl_options = {'REGISTER', 'UNDO'}
     bl_label = "Cleanup Facial Animation Keys"
     bl_description = "Remove nearly-identical or redundant shape key and enabled bone keyframes"
 

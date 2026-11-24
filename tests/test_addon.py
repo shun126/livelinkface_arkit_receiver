@@ -467,6 +467,29 @@ class LiveLinkFaceBoneTests(unittest.TestCase):
         bpy.ops.livelinkface.clear_all_facial_keys()
         self.assertIsNone(self.fcurve("eye.L"))
 
+    def test_clear_frame_keeps_subframe_keys(self):
+        bone = self.arm.pose.bones["eye.L"]
+        for frame, value in ((10.0, 0.1), (10.5, 0.5)):
+            bone.rotation_euler = (value, 0.0, 0.0)
+            bone.keyframe_insert("rotation_euler", index=0, frame=frame)
+        bpy.context.scene.frame_set(10)
+
+        bpy.ops.livelinkface.clear_frame_keys()
+        bpy.ops.livelinkface.clear_frame_keys()
+
+        self.assertEqual([p.co[0] for p in self.fcurve("eye.L").keyframe_points], [10.5])
+
+    def test_key_editing_operators_support_undo(self):
+        for op_class in (
+            addon.LFO_OT_clear_shape_keys,
+            addon.LFO_OT_record_frame_keys,
+            addon.LFO_OT_clear_frame_keys,
+            addon.LFO_OT_clear_all_facial_keys,
+            addon.LFO_OT_cleanup_keys,
+        ):
+            with self.subTest(operator=op_class.bl_idname):
+                self.assertIn('UNDO', op_class.bl_options)
+
     def test_record_threshold_skips_unchanged_values(self):
         bone = self.arm.pose.bones["eye.L"]
         scene = bpy.context.scene
