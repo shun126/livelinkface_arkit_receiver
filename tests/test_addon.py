@@ -166,6 +166,28 @@ class LiveLinkFaceAddonTests(unittest.TestCase):
             for obj in objects:
                 remove_mesh_object(obj)
 
+    def test_process_queue_applies_to_non_mesh_shape_keys(self):
+        lattice = bpy.data.lattices.new("ShapeKeyLattice")
+        obj = bpy.data.objects.new("ShapeKeyLattice", lattice)
+        bpy.context.scene.collection.objects.link(obj)
+        try:
+            obj.shape_key_add(name="Basis")
+            obj.shape_key_add(name="jawOpen")
+            item = self.props.target_objects.add()
+            item.target_object = obj
+
+            values = [0.0] * len(addon.ARKit_BLENDSHAPES)
+            values[addon.ARKit_BLENDSHAPES.index("jawOpen")] = 0.6
+            addon.shared_values = tuple(values)
+
+            addon.process_queue()
+
+            self.assertAlmostEqual(lattice.shape_keys.key_blocks["jawOpen"].value, 0.6, places=6)
+        finally:
+            clear_targets(self.props)
+            bpy.data.objects.remove(obj, do_unlink=True)
+            bpy.data.lattices.remove(lattice)
+
     def test_mirror_feature_contract_when_present(self):
         if not hasattr(self.props, "mirror"):
             self.skipTest("Mirror feature is not present in this revision")

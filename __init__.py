@@ -501,9 +501,10 @@ def process_queue():
         # apply to all target objects
         for obj in target_objs:
             updated = False
-            if obj.type == 'MESH' and obj.data and obj.data.shape_keys:
+            # メッシュ以外（カーブ・サーフェス・ラティス）のシェイプキーも駆動する
+            if get_shape_keys(obj):
                 apply_blendshapes(obj, copied_shared_values)
-            elif obj.type == 'ARMATURE':
+            if obj.type == 'ARMATURE':
                 updated = apply_bones(obj, copied_shared_values, props)
 
             if props.write_custom_props:
