@@ -1,0 +1,71 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      draft:
+        description: Create the release as a draft
+        type: boolean
+        default: false
+      prerelease:
+        description: Mark the release as a pre-release
+        type: boolean
+        default: false
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  tests:
+    name: Tests
+    uses: ./.github/workflows/blender-tests.yml
+    permissions:
+      contents: read
+
+  release:
+    name: Create release
+    needs: tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build add-on zip and release notes
+        id: build
+        run: python .github/scripts/build_release.py --out-dir dist
+
+      - name: Show zip contents
+        run: unzip -l "${{ steps.build.outputs.zip }}"
+
+      - name: Check tag does not exist
+        env:
+          TAG: ${{ steps.build.outputs.tag }}
+        run: |
+          if git ls-remote --exit-code --tags origin "refs/tags/${TAG}" > /dev/null; then
+            echo "::error::Tag ${TAG} already exists. Bump bl_info version and add a CHANGELOG section first."
+            exit 1
+          fi
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.build.outputs.tag }}
+          TITLE: ${{ steps.build.outputs.title }}
+          ZIP: ${{ steps.build.outputs.zip }}
+          NOTES: ${{ steps.build.outputs.notes }}
+          DRAFT: ${{ inputs.draft }}
+          PRERELEASE: ${{ inputs.prerelease }}
+        run: |
+          flags=()
+          if [ "${DRAFT}" = "true" ]; then flags+=(--draft); fi
+          if [ "${PRERELEASE}" = "true" ]; then flags+=(--prerelease); fi
+          gh release create "${TAG}" "${ZIP}" \
+            --target "${GITHUB_SHA}" \
+            --title "${TITLE}" \
+            --notes-file "${NOTES}" \
+            "${flags[@]}"
