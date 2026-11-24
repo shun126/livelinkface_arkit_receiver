@@ -75,3 +75,24 @@ jobs:
             --factory-startup \
             --python-exit-code 1 \
             --python tests/test_addon.py
+
+  release-artifact:
+    name: Build release artifact
+    needs: [python-syntax, blender-integration]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build release zip
+        id: build
+        run: python .github/scripts/build_release.py --out-dir dist
+
+      - name: Upload release zip
+        uses: actions/upload-artifact@v4
+        with:
+          name: livelinkface_arkit_receiver-${{ steps.build.outputs.version }}
+          path: ${{ steps.build.outputs.zip }}
+          if-no-files-found: error
