@@ -147,7 +147,11 @@ for i, blendshape in enumerate(ARKit_BLENDSHAPES):
 receiver_thread_stop_event = threading.Event()
 receiver_thread_handle = None
 shared_values = None
+# 受信したパケットの通し番号。新しいデータが届いたかどうかの判定に使う
+shared_values_serial = 0
 shared_values_lock = threading.Lock()
+# タイムラプスで最後に記録したときの shared_values_serial
+timelapse_recorded_serial = 0
 
 # ---------------------------
 # レシーバースレッド
@@ -216,8 +220,9 @@ class receiver_thread(threading.Thread):
                     #print(values)bpy.app.timers.register(lambda: apply_blendshapes(target_obj, values), first_interval=0.0)
 
                     with shared_values_lock:
-                        global shared_values
+                        global shared_values, shared_values_serial
                         shared_values = values
+                        shared_values_serial += 1
 
                 except socket.timeout:
                     continue
@@ -436,13 +441,20 @@ def insert_channel_key(channel, frame, threshold=None):
     return channel.owner.keyframe_insert(channel.prop, index=channel.index, frame=frame, **kwargs)
 
 def cleanup_fcurve(fcurve, threshold):
-    """直前に残したキーとの差が threshold 以下のキーを削除し、削除数を返す"""
+    """直前に残したキーとも次のキーとも差が threshold 以下の中間キーを削除し、削除数を返す
+
+    ホールドの終わり（値が変わる直前のキー）と最初・最後のキーは残すので、
+    止まっていた表情が補間でゆっくり変わる動きに変わることはない
+    """
     points = fcurve.keyframe_points
+    last_index = len(points) - 1
     redundant = []
     last_value = None
     for index, point in enumerate(points):
         value = point.co[1]
-        if last_value is not None and abs(value - last_value) <= threshold:
+        if (0 < index < last_index
+                and abs(value - last_value) <= threshold
+                and abs(points[index + 1].co[1] - last_value) <= threshold):
             redundant.append(index)
         else:
             last_value = value
@@ -463,6 +475,7 @@ def tag_animation_editors(context):
             area.tag_redraw()
 
 def process_queue():
+    global timelapse_recorded_serial
     props = bpy.context.scene.livelinkface_props
 
     # gather target objects
@@ -472,6 +485,7 @@ def process_queue():
     copied_shared_values = None
     with shared_values_lock:
         copied_shared_values = list(shared_values) if shared_values else None
+        serial = shared_values_serial
 
     if copied_shared_values:
         # mirror left/right values if enabled
@@ -494,10 +508,15 @@ def process_queue():
 
     # Time-lapse recording mode
     if props.timelapse_enabled:
-        props.timelapse_counter += 1
+        if props.timelapse_counter < props.timelapse_interval:
+            props.timelapse_counter += 1
 
-        if props.timelapse_counter >= props.timelapse_interval:
+        # 前回の記録以降に新しいデータが届いたときだけ記録してフレームを進める
+        # （受信開始前の既定値や、通信が切れた後の古い値を記録しない）
+        if (props.timelapse_counter >= props.timelapse_interval
+                and copied_shared_values and serial != timelapse_recorded_serial):
             props.timelapse_counter = 0
+            timelapse_recorded_serial = serial
 
             # Insert key into current frame
             scene = bpy.context.scene
@@ -685,11 +704,15 @@ class LFO_OT_start(Operator):
     bl_label = "Start LiveLinkFace"
 
     def execute(self, context):
-        global receiver_thread_handle, receiver_thread_stop_event
+        global receiver_thread_handle, receiver_thread_stop_event, timelapse_recorded_serial
         props = context.scene.livelinkface_props
         if props.running:
             self.report({'WARNING'}, "Already running")
             return {'CANCELLED'}
+        # 前回の受信で残った値をタイムラプスで記録しない
+        with shared_values_lock:
+            timelapse_recorded_serial = shared_values_serial
+        props.timelapse_counter = 0
         receiver_thread_stop_event = threading.Event()
         # bind to 0.0.0.0 by default
         ip = props.listen_ip

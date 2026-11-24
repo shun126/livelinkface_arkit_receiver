@@ -508,17 +508,74 @@ class LiveLinkFaceBoneTests(unittest.TestCase):
 
         bpy.ops.livelinkface.cleanup_keys(threshold=0.001)
 
-        self.assertEqual([p.co[0] for p in self.fcurve("eye.L").keyframe_points], [1.0, 4.0])
+        # 2 だけが不要。3 はホールドの終わり、5 は最後のキーなので残す
+        self.assertEqual([p.co[0] for p in self.fcurve("eye.L").keyframe_points], [1.0, 3.0, 4.0, 5.0])
+
+    def test_cleanup_preserves_hold_boundaries(self):
+        bone = self.arm.pose.bones["eye.L"]
+        for frame, value in ((1, 0.0), (25, 0.0), (50, 0.0), (51, 1.0), (100, 1.0)):
+            bone.rotation_euler = (value, 0.0, 0.0)
+            bone.keyframe_insert("rotation_euler", index=0, frame=frame)
+
+        bpy.ops.livelinkface.cleanup_keys(threshold=0.0)
+
+        fcurve = self.fcurve("eye.L")
+        self.assertEqual([p.co[0] for p in fcurve.keyframe_points], [1.0, 50.0, 51.0, 100.0])
+        self.assertAlmostEqual(fcurve.evaluate(40), 0.0, places=5)
+
+    def test_cleanup_does_not_drift_on_slow_changes(self):
+        bone = self.arm.pose.bones["eye.L"]
+        for frame in range(1, 11):
+            bone.rotation_euler = (frame * 0.0003, 0.0, 0.0)
+            bone.keyframe_insert("rotation_euler", index=0, frame=frame)
+
+        bpy.ops.livelinkface.cleanup_keys(threshold=0.001)
+
+        values = [p.co[1] for p in self.fcurve("eye.L").keyframe_points]
+        self.assertLess(len(values), 10)
+        for previous, current in zip(values, values[1:]):
+            self.assertLessEqual(current - previous, 0.001 + 1e-6)
+
+    def receive(self, values):
+        """受信スレッドがパケットを受け取ったときと同じように shared_values を更新する"""
+        addon.shared_values = tuple(values)
+        addon.shared_values_serial += 1
 
     def test_timelapse_keys_bones(self):
         self.props.timelapse_enabled = True
         self.props.timelapse_interval = 1
-        addon.shared_values = tuple(rotation_values())
+        self.receive(rotation_values())
 
         addon.process_queue()
 
         self.assertIsNotNone(self.fcurve("eye.L"))
         self.assertEqual(bpy.context.scene.frame_current, 2)
+
+    def test_timelapse_waits_for_first_packet(self):
+        self.props.timelapse_enabled = True
+        self.props.timelapse_interval = 1
+
+        addon.process_queue()
+
+        self.assertIsNone(self.fcurve("eye.L"))
+        self.assertEqual(bpy.context.scene.frame_current, 1)
+
+    def test_timelapse_does_not_record_stale_values(self):
+        self.props.timelapse_enabled = True
+        self.props.timelapse_interval = 1
+        self.receive(rotation_values())
+        addon.process_queue()
+
+        # 新しいパケットが届かない間は記録もフレームの前進もしない
+        addon.process_queue()
+        addon.process_queue()
+        self.assertEqual(bpy.context.scene.frame_current, 2)
+        self.assertEqual(len(self.fcurve("eye.L").keyframe_points), 1)
+
+        self.receive(rotation_values())
+        addon.process_queue()
+        self.assertEqual(bpy.context.scene.frame_current, 3)
+        self.assertEqual(len(self.fcurve("eye.L").keyframe_points), 2)
 
     def test_shape_key_operators_work_with_layered_actions(self):
         obj = create_mesh_object("LayeredKeys", ["jawOpen"])
