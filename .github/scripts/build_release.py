@@ -14,8 +14,8 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[2]
 ADDON_NAME = "livelinkface_arkit_receiver"
 
-# Only the files Blender needs, plus the license required by GPL-3.0.
-ADDON_FILES = ("__init__.py", "LICENSE")
+# The add-on itself, its change history, and the license required by GPL-3.0.
+ADDON_FILES = ("__init__.py", "CHANGELOG.md", "LICENSE")
 
 
 def read_bl_info():
@@ -52,11 +52,16 @@ def build_zip(zip_path):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--out-dir", default="dist", help="Output directory for the zip and notes")
+    parser.add_argument("--tag", help="Pushed tag, which must match the CHANGELOG heading")
     args = parser.parse_args()
 
     bl_info = read_bl_info()
     version = ".".join(str(part) for part in bl_info["version"])
     tag, notes = read_changelog_section(version)
+    if args.tag and args.tag != tag:
+        raise RuntimeError(
+            f'Tag "{args.tag}" does not match CHANGELOG heading "{tag}" for version {version}'
+        )
 
     out_dir = Path(args.out_dir)
     zip_path = out_dir / f"{ADDON_NAME}-{version}.zip"

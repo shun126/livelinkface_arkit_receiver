@@ -12,7 +12,7 @@
 
 ![livelinkface_arkit_receiver](https://github.com/shun126/livelinkface_arkit_receiver/wiki/livelinkface_arkit_receiver.gif)
 
-**LiveLinkFace ARKit Receiver** は、iPhone の **Live Link Face** アプリから送信されるフェイシャルトラッキングデータを **Blender** で受信し、モデルのシェイプキーへリアルタイムに適用するアドオンです。
+**LiveLinkFace ARKit Receiver** は、iPhone の **Live Link Face** アプリから送信されるフェイシャルトラッキングデータを **Blender** で受信し、モデルのシェイプキーとボーンへリアルタイムに適用するアドオンです。
 
 > 🎨 アーティストが「自分の顔でモデルを動かす」ためのシンプルなツールです。
 
@@ -23,9 +23,12 @@
 - **複数のターゲットオブジェクト** を同時に駆動（顔・まつ毛・歯など）
 - 左右のブレンドシェイプ値を入れ替える **Mirror Left/Right** オプション
 - ARKit シェイプキーをすべて 0 に戻す **Clear Shape Key Values** ボタン
+- 受信した回転で **目・首・頭のボーン** を駆動
+- 頭と目の回転をドライバー用の **カスタムプロパティ** へ書き出し
+- **タイムラプス記録** と、表情キーの記録・削除・クリーンアップ
 - **Perfect Sync 対応モデルの検証** に最適
-- Blender **4.5** で開発・動作確認済み
-- ARKit プロトコルのみ対応（MetaHuman Animator モード、頭部回転・眼球回転には非対応）
+- Blender **4.5** / **5.1** に対応
+- ARKit プロトコルのみ対応（MetaHuman Animator モードには非対応）
 
 # 🧩 インストール方法
 
@@ -57,6 +60,39 @@
 表情を動かすと、Blender 上のモデルにもリアルタイムで反映されます。
 受信を止めるには **Stop LiveLinkFace** をクリックします。
 
+## 3. ボーンの設定（目・首・頭）
+
+LiveLinkFace パネルの **Bones** グループを開いて設定します。
+
+1. **Armature** に対象のアーマチュアを指定します。
+1. **Drive Eye Bones** / **Drive Neck/Head Bones** を有効にします（既定は無効）。
+1. 各ボーンを選択します。首を空にすると、頭の回転はすべて頭ボーンに入ります。
+1. **Neck Weight** で首に配分する割合を指定します（既定 0.4。頭には残りの 0.6）。
+1. 動きが大きすぎる・小さすぎる場合は **Eye Scale** / **Head Scale** で調整します。
+
+ボーンの `rotation_mode` は変更しません。Quaternion / Euler / Axis Angle のいずれのリグでも使えます。
+
+### 軸マッピング
+
+Blender のボーンはローカル Y がボーンの向きなので、正しい軸はボーンの向きによって変わります。
+Pitch / Yaw / Roll ごとに、ローカル軸（X / Y / Z）と符号反転を設定できます。
+
+| 対象 | Pitch | Yaw | Roll | 想定するボーンの向き |
+| --- | --- | --- | --- | --- |
+| 目 | X | Z | Y | 前向き |
+| 首・頭 | X | Y | Z | 上向き |
+
+動きの向きが逆の場合は符号反転を、別の方向に回る場合は軸を変更してください。
+
+### カスタムプロパティ（ドライバー用）
+
+**Write Custom Properties** を有効にすると、ターゲットオブジェクトに次の 9 個のカスタムプロパティを書き出します。
+シェイプキーと違い負の値も保持されるので、ドライバーの入力に使えます。
+
+`headYaw` `headPitch` `headRoll` `leftEyeYaw` `leftEyePitch` `leftEyeRoll` `rightEyeYaw` `rightEyePitch` `rightEyeRoll`
+
+値は受信値そのものです（ミラーは反映され、Scale は反映されません）。
+
 ## パネルの項目
 
 | 項目 | 説明 |
@@ -65,7 +101,13 @@
 | Target Object | シェイプキーを駆動するオブジェクトのリスト |
 | Clear Shape Key Values | ターゲットオブジェクトの ARKit シェイプキーをすべて 0 に戻します。リストが空の場合はアクティブオブジェクトが対象です。停止中のみ実行できます。 |
 | Start / Stop LiveLinkFace | 受信の開始・停止 |
-| Mirror Left/Right | 左右のブレンドシェイプ値を入れ替えます（例：`eyeBlinkLeft` ⇔ `eyeBlinkRight`）。受信中も切り替え可能です。 |
+| Mirror Left/Right | 左右のブレンドシェイプ値を入れ替えます（例：`eyeBlinkLeft` ⇔ `eyeBlinkRight`）。頭と目の回転にも適用されます。受信中も切り替え可能です。 |
+| Timelapse（見出しのチェックボックス） / Interval | 受信中、指定したフレーム間隔でキーを挿入します。チェックボックスはグループを閉じていても表示されます。 |
+| Record Facial Pose | 現在フレームに、前回キーから変化した値のキーを挿入します |
+| Clear Facial Animation Keys | 現在フレームのシェイプキーと有効なボーンのキーを削除します |
+| Clear ALL Facial Keys | シェイプキーと有効なボーンのキーをすべて削除します |
+| Cleanup Facial Animation Keys | 値がほとんど変わらない冗長なキーを削除します |
+| Bones | アーマチュア、ボーン、配分、倍率、軸マッピング、カスタムプロパティ |
 
 # 🧰 シェイプキー対応（ARKit 52 キー）
 
@@ -95,6 +137,7 @@
 | 一部のキーが動かない | シェイプキー名の不一致 | シェイプキー名を ARKit 名と完全一致（大文字・小文字を区別）させる |
 | 動きが途切れる | 通信遅延 | 有線 LAN または 5GHz 帯の Wi-Fi を推奨 |
 | 左右が逆になる | モデルの向き | **Mirror Left/Right** を有効にする |
+| ボーンが違う向きに回る | 軸マッピングがボーンと合っていない | **Bones** グループで軸または符号反転を変更 |
 | 「Cannot clear while running」と表示される | 受信中 | **Stop LiveLinkFace** で停止してからクリア |
 
 受信ログ（`[LiveLinkFace] Listening on ...` など）は Blender のシステムコンソールに出力されます。
@@ -113,16 +156,21 @@
 blender --background --factory-startup --python-exit-code 1 --python tests/test_addon.py
 ```
 
-同じテストが push とプルリクエストごとに GitHub Actions 上の Blender 4.5 LTS で自動実行されます。
+同じテストが、プルリクエストと `main` への push で GitHub Actions 上の Blender 4.5 LTS により自動実行されます。
 
 ## リリース手順
 
 1. `__init__.py` の `bl_info` の `version` を更新します。
 1. `CHANGELOG.md` に `## YYYYMMDD-<バージョン>` のセクションを追加します。
-1. Actions タブから **Release** ワークフローを手動で実行します。
+1. その見出しと完全に同じ名前のタグを push します。
 
-ワークフローはテストを実行したあと、CHANGELOG の見出しをタグ名にしてリリースを作成します。
-そのセクションをリリースノートに使い、`__init__.py` と `LICENSE` だけを含む `livelinkface_arkit_receiver-<バージョン>.zip` を添付します。
+   ```sh
+   git tag YYYYMMDD-<バージョン>
+   git push origin YYYYMMDD-<バージョン>
+   ```
+
+**Release** ワークフローがテストを実行したあと、そのタグのリリースを作成します。タグが `bl_info` のバージョンに対応する CHANGELOG の見出しと一致しない場合は失敗します。
+そのセクションをリリースノートに使い、`__init__.py`、`CHANGELOG.md`、`LICENSE` を含む `livelinkface_arkit_receiver-<バージョン>.zip` を添付します。
 
 # ⚖️ ライセンス
 
