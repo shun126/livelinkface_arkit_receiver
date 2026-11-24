@@ -156,7 +156,7 @@ Integration tests run inside Blender in background mode:
 blender --background --factory-startup --python-exit-code 1 --python tests/test_addon.py
 ```
 
-The same tests run automatically on GitHub Actions against Blender 4.5 LTS for pull requests and pushes to `main`.
+The same tests run automatically on GitHub Actions against Blender 4.5 LTS and 5.2 LTS for pull requests and pushes to `main`.
 
 ## Releasing
 

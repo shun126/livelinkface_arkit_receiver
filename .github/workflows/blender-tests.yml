@@ -29,12 +29,21 @@ jobs:
         run: python -m py_compile __init__.py tests/test_addon.py .github/scripts/build_release.py
 
   blender-integration:
-    name: Blender 4.5 LTS integration
+    name: Blender ${{ matrix.series }} LTS integration
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - series: '4.5'
+            version: 4.5.13
+          - series: '5.2'
+            version: 5.2.5
     env:
-      BLENDER_VERSION: 4.5.13
-      BLENDER_PACKAGE: blender-4.5.13-linux-x64
+      BLENDER_SERIES: ${{ matrix.series }}
+      BLENDER_VERSION: ${{ matrix.version }}
+      BLENDER_PACKAGE: blender-${{ matrix.version }}-linux-x64
 
     steps:
       - name: Checkout
@@ -52,7 +61,7 @@ jobs:
         run: |
           mkdir -p .cache
           curl --fail --location --retry 3 \
-            "https://download.blender.org/release/Blender4.5/${BLENDER_PACKAGE}.tar.xz" \
+            "https://download.blender.org/release/Blender${BLENDER_SERIES}/${BLENDER_PACKAGE}.tar.xz" \
             --output "/tmp/${BLENDER_PACKAGE}.tar.xz"
           tar -xJf "/tmp/${BLENDER_PACKAGE}.tar.xz" -C .cache
 

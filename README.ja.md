@@ -156,7 +156,7 @@ Pitch / Yaw / Roll ごとに、ローカル軸（X / Y / Z）と符号反転を�
 blender --background --factory-startup --python-exit-code 1 --python tests/test_addon.py
 ```
 
-同じテストが、プルリクエストと `main` への push で GitHub Actions 上の Blender 4.5 LTS により自動実行されます。
+同じテストが、プルリクエストと `main` への push で GitHub Actions 上の Blender 4.5 LTS と 5.2 LTS により自動実行されます。
 
 ## リリース手順
 
