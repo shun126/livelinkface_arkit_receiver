@@ -90,9 +90,17 @@ jobs:
         id: build
         run: python .github/scripts/build_release.py --out-dir dist
 
+      # upload-artifact always wraps uploads in its own zip, so uploading the
+      # built zip directly produces a zip inside a zip. Upload the extracted
+      # add-on folder instead so the downloaded artifact is the add-on zip.
+      - name: Extract zip for artifact
+        run: |
+          mkdir -p dist/artifact
+          unzip -q "${{ steps.build.outputs.zip }}" -d dist/artifact
+
       - name: Upload release zip
         uses: actions/upload-artifact@v4
         with:
           name: livelinkface_arkit_receiver-${{ steps.build.outputs.version }}
-          path: ${{ steps.build.outputs.zip }}
+          path: dist/artifact/
           if-no-files-found: error
