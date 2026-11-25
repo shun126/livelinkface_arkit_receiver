@@ -210,8 +210,6 @@ class receiver_thread(threading.Thread):
                     offset += 4
                     offset += 4
 
-                    print(f"Message type: {msg_type}, UUID: {uuid}, Device: {device_name} ({device_name_length})")
-
                     # 残りは float 配列
                     values = struct.unpack_from(">" + "f" * ((len(data)-offset)//4), data, offset)
                     #for i, v in enumerate(values):
@@ -684,10 +682,11 @@ class LFProperties(PropertyGroup):
     eye_roll_invert: BoolProperty(name="Invert Eye Roll", default=False)
 
     # 首・頭の骨は上向きを想定した既定値
+    # headPitch は目の Pitch と符号が逆（上を向くと正）なので、既定で反転する
     head_pitch_axis: axis_enum_property("Head Pitch Axis", 'X')
     head_yaw_axis: axis_enum_property("Head Yaw Axis", 'Y')
     head_roll_axis: axis_enum_property("Head Roll Axis", 'Z')
-    head_pitch_invert: BoolProperty(name="Invert Head Pitch", default=False)
+    head_pitch_invert: BoolProperty(name="Invert Head Pitch", default=True)
     head_yaw_invert: BoolProperty(name="Invert Head Yaw", default=False)
     head_roll_invert: BoolProperty(name="Invert Head Roll", default=False)
 

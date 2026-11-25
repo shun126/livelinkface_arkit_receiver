@@ -387,8 +387,8 @@ class LiveLinkFaceBoneTests(unittest.TestCase):
         # 目: Pitch→X, Roll→Y, Yaw→Z（Yaw は符号反転）
         self.assertEuler(bones["eye.L"], (0.12, 0.13, -0.11))
         self.assertEuler(bones["eye.R"], (0.22, -0.23, 0.21))
-        # 頭: Pitch→X, Yaw→Y, Roll→Z
-        self.assertEuler(bones["head"], (0.20, 0.10, -0.30))
+        # 頭: Pitch→X, Yaw→Y, Roll→Z（Pitch は既定で符号反転）
+        self.assertEuler(bones["head"], (-0.20, 0.10, -0.30))
 
     def test_scale_is_applied(self):
         self.props.neck_bone = ""
@@ -397,7 +397,7 @@ class LiveLinkFaceBoneTests(unittest.TestCase):
         addon.apply_bones(self.arm, rotation_values(), self.props)
 
         self.assertEuler(self.arm.pose.bones["eye.L"], (0.24, 0.26, 0.22))
-        self.assertEuler(self.arm.pose.bones["head"], (0.10, 0.05, -0.15))
+        self.assertEuler(self.arm.pose.bones["head"], (-0.10, 0.05, -0.15))
 
     def test_rotation_mode_is_preserved(self):
         expected = Euler((0.12, 0.13, 0.11), 'XYZ').to_quaternion()
@@ -426,22 +426,22 @@ class LiveLinkFaceBoneTests(unittest.TestCase):
         bones = self.arm.pose.bones
         self.assertEuler(bones["eye.L"], (0.22, 0.23, 0.21))
         self.assertEuler(bones["eye.R"], (0.12, -0.13, -0.11))
-        self.assertEuler(bones["head"], (0.20, -0.10, 0.30))
+        self.assertEuler(bones["head"], (-0.20, -0.10, 0.30))
 
     def test_neck_weight_distribution(self):
         values = rotation_values()
         addon.apply_bones(self.arm, values, self.props)
-        self.assertEuler(self.arm.pose.bones["neck"], (0.08, 0.04, -0.12))
-        self.assertEuler(self.arm.pose.bones["head"], (0.12, 0.06, -0.18))
+        self.assertEuler(self.arm.pose.bones["neck"], (-0.08, 0.04, -0.12))
+        self.assertEuler(self.arm.pose.bones["head"], (-0.12, 0.06, -0.18))
 
         self.props.neck_bone = ""
         addon.apply_bones(self.arm, values, self.props)
-        self.assertEuler(self.arm.pose.bones["head"], (0.20, 0.10, -0.30))
+        self.assertEuler(self.arm.pose.bones["head"], (-0.20, 0.10, -0.30))
 
     def test_missing_neck_bone_gives_head_full_rotation(self):
         self.props.neck_bone = "does_not_exist"
         addon.apply_bones(self.arm, rotation_values(), self.props)
-        self.assertEuler(self.arm.pose.bones["head"], (0.20, 0.10, -0.30))
+        self.assertEuler(self.arm.pose.bones["head"], (-0.20, 0.10, -0.30))
 
     def test_short_packet_does_not_raise(self):
         self.props.write_custom_props = True

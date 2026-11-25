@@ -6,6 +6,8 @@
 * Added bone selection, neck/head distribution, scale and per-axis mapping
 * Mirror Left/Right now also applies to head and eye rotation
 * Write head and eye rotation to custom properties for use with drivers (#13)
+* Invert Head Pitch is now on by default, because the received head pitch has the opposite sign to eye pitch
+* Removed the debug log printed for every received packet
 * Added timelapse recording (#5)
 * Added operators to record, clear and clean up facial keys for shape keys and bones (#5)
 * Added support for Blender 5.1
@@ -15,6 +17,8 @@
 * ボーンの選択、首と頭の配分、倍率、軸ごとのマッピングを追加
 * Mirror Left/Right を頭と目の回転にも適用
 * 頭と目の回転をドライバー用のカスタムプロパティへ書き出し (#13)
+* 受信する頭のピッチは目のピッチと符号が逆のため、Invert Head Pitch を既定でオンに変更
+* パケット受信のたびに出ていたデバッグ用ログを削除
 * タイムラプス記録を追加 (#5)
 * シェイプキーとボーンの表情キーを記録・削除・クリーンアップする機能を追加 (#5)
 * Blender 5.1 に対応
