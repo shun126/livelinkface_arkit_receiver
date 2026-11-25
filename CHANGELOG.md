@@ -1,6 +1,6 @@
 # LiveLinkFace ARKit Receiver for Blender
 
-## 20261124-0.5
+## 20261126-0.5
 ### Changes
 * Drive eye, neck and head bones from the received rotation values (#13)
 * Added bone selection, neck/head distribution, scale and per-axis mapping
